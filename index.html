@@ -15,10 +15,78 @@ html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:#
 body{touch-action:none;-webkit-user-select:none;user-select:none}
 canvas{display:block;max-width:100vw;max-height:100vh;margin:auto;touch-action:none}
 button{font:inherit}
-</style></head><body><main class="app">
+</style>
+<script>
+(() => {
+  let audioCtx = null;
+  let soundOn = localStorage.getItem('stackrush_sound') !== 'off';
+
+  function ensureAudio() {
+    if (!soundOn) return null;
+    if (!audioCtx) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return null;
+      audioCtx = new AC();
+    }
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    return audioCtx;
+  }
+
+  function tone(freq, duration, type='sine', volume=0.045, slide=0) {
+    const ac = ensureAudio();
+    if (!ac) return;
+    const now = ac.currentTime;
+    const osc = ac.createOscillator();
+    const gain = ac.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, now);
+    if (slide) osc.frequency.linearRampToValueAtTime(Math.max(30, freq + slide), now + duration);
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(volume, now + 0.008);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+    osc.connect(gain).connect(ac.destination);
+    osc.start(now);
+    osc.stop(now + duration + 0.02);
+  }
+
+  window.sfx = {
+    tap() { tone(220, .07, 'square', .025, 80); },
+    perfect() {
+      tone(520, .10, 'sine', .045, 160);
+      setTimeout(() => tone(760, .13, 'sine', .04, 220), 55);
+      setTimeout(() => tone(1040, .16, 'sine', .035, 180), 120);
+    },
+    coin() {
+      tone(880, .08, 'triangle', .045, 120);
+      setTimeout(() => tone(1320, .12, 'triangle', .04, 80), 70);
+    },
+    buy() {
+      tone(420, .09, 'sine', .04, 160);
+      setTimeout(() => tone(660, .12, 'sine', .04, 220), 75);
+      setTimeout(() => tone(900, .16, 'sine', .035, 180), 150);
+    },
+    fail() {
+      tone(210, .18, 'sawtooth', .035, -90);
+      setTimeout(() => tone(130, .25, 'sawtooth', .025, -50), 110);
+    }
+  };
+
+  window.toggleSound = function() {
+    soundOn = !soundOn;
+    localStorage.setItem('stackrush_sound', soundOn ? 'on' : 'off');
+    const b = document.getElementById('soundBtn');
+    if (b) b.textContent = soundOn ? '🔊 SON' : '🔇 SON';
+    if (soundOn) tone(660, .1, 'sine', .035, 120);
+  };
+
+  window.addEventListener('pointerdown', ensureAudio, {once:false, passive:true});
+  window.addEventListener('keydown', ensureAudio, {once:false});
+})();
+</script>
+</head><body><main class="app">
 <header><div class="logo">STACK <span>RUSH</span></div><div class="coins">🪙 <span id="coins">0</span></div></header>
 <section class="screen">
-<div id="home" class="panel"><h1 class="title">STACK<br>RUSH</h1><div class="sub">Empile. Combo. Record.</div><button class="btn" id="play">JOUER</button><button class="btn secondary" id="shopBtn">SKINS</button><div class="tiny">Jeu gratuit • hors connexion</div></div>
+<div id="home" class="panel"><h1 class="title">STACK<br>RUSH</h1><div class="sub">Empile. Combo. Record.</div><button class="btn" id="play">JOUER</button><button class="btn secondary" id="shopBtn">SKINS</button><button class="btn secondary" id="soundBtn" onclick="toggleSound()">🔊 SON</button><div class="tiny">Jeu gratuit • hors connexion</div></div>
 <div id="shop" class="shop"><h2>SKINS</h2><div id="skins"></div><button class="btn secondary" id="closeShop">RETOUR</button></div>
 <div id="game" class="game"><canvas id="c"></canvas><div class="hud"><div class="pill">🏆 <span id="best">0</span></div><div class="score"><span id="score">0</span><small>SCORE</small></div><div class="pill">🔥 <span id="combo">0</span></div></div><div id="result" class="result"><div class="card"><div class="sub">PARTIE TERMINÉE</div><p class="big" id="finalScore">0</p><div class="stat"><span>Meilleur score</span><b id="finalBest">0</b></div><div class="stat"><span>Pièces gagnées</span><b id="earned">0</b></div><button class="btn" id="again">REJOUER</button><button class="btn secondary" id="homeBtn">ACCUEIL</button></div></div></div>
 </div></section><div class="toast" id="toast"></div></main>
@@ -32,12 +100,12 @@ function toast(t){$('#toast').textContent=t;$('#toast').style.display='block';se
 function drawBlock(x,y,w,h,alpha=1){let s=skins[skin];let g=ctx.createLinearGradient(x,y,x+w,y+h);g.addColorStop(0,s.a);g.addColorStop(1,s.b);ctx.globalAlpha=alpha;ctx.fillStyle=g;ctx.beginPath();ctx.roundRect(x,y,w,h,8);ctx.fill();ctx.globalAlpha=1}
 function reset(){resize();score=0;combo=0;level=1;stack=[];let baseW=Math.min(210,W*.48);let y=H-95;stack.push({x:(W-baseW)/2,y,w:baseW,h:34});block={x:10,y:y-38,w:baseW,h:34,dx:2.4};$('#score').textContent=0;$('#combo').textContent=0;$('#best').textContent=best;$('#result').style.display='none';playing=true;last=performance.now();raf=requestAnimationFrame(loop)}
 function loop(t){if(!playing)return;let dt=Math.min(32,t-last);last=t;block.x+=block.dx*dt/16.67;if(block.x<=0||block.x+block.w>=W)block.dx*=-1;ctx.clearRect(0,0,W,H);ctx.fillStyle='#0a0d18';ctx.fillRect(0,0,W,H);for(let i=0;i<stack.length;i++){let b=stack[i];drawBlock(b.x,b.y,b.w,b.h)}drawBlock(block.x,block.y,block.w,block.h,.78);requestAnimationFrame(loop)}
-function drop(){if(!playing)return;let base=stack[stack.length-1],left=Math.max(block.x,base.x),right=Math.min(block.x+block.w,base.x+base.w),over=right-left;if(over<16){end();return}let perfect=Math.abs((block.x+block.w/2)-(base.x+base.w/2))<7;combo=perfect?combo+1:0;score+=perfect?20+combo*5:10;let nb={x:left,y:block.y,w:over,h:block.h};stack.push(nb);if(perfect)toast('PERFECT 🔥');$('#score').textContent=score;$('#combo').textContent=combo;level=1+Math.floor(score/100);block={x:Math.random()<.5?5:W-over-5,y:nb.y-38,w:over,h:34,dx:(2.1+level*.12)*(Math.random()<.5?1:-1)};if(nb.y<110){stack=stack.map(b=>({...b,y:b.y+38}));block.y+=38}}
-function end(){playing=false;cancelAnimationFrame(raf);if(score>best){best=score;localStorage.best=best}let gain=Math.max(1,Math.floor(score/25));coins+=gain;localStorage.coins=coins;$('#coins').textContent=coins;$('#finalScore').textContent=score;$('#finalBest').textContent=best;$('#earned').textContent='+'+gain;$('#result').style.display='flex'}
+function drop(){if(!playing)return;let base=stack[stack.length-1],left=Math.max(block.x,base.x),right=Math.min(block.x+block.w,base.x+base.w),over=right-left;if(over<16){if(window.sfx) sfx.fail();end();return}let perfect=Math.abs((block.x+block.w/2)-(base.x+base.w/2))<7;combo=perfect?combo+1:0;score+=perfect?20+combo*5:10;let nb={x:left,y:block.y,w:over,h:block.h};stack.push(nb);if(perfect){toast('PERFECT 🔥'); if(window.sfx) sfx.perfect();} else { if(window.sfx) sfx.tap();}$('#score').textContent=score;$('#combo').textContent=combo;level=1+Math.floor(score/100);block={x:Math.random()<.5?5:W-over-5,y:nb.y-38,w:over,h:34,dx:(2.1+level*.12)*(Math.random()<.5?1:-1)};if(nb.y<110){stack=stack.map(b=>({...b,y:b.y+38}));block.y+=38}}
+function end(){playing=false;cancelAnimationFrame(raf);if(score>best){best=score;localStorage.best=best}let gain=Math.max(1,Math.floor(score/25));coins+=gain;localStorage.coins=coins;if(window.sfx) sfx.coin();$('#coins').textContent=coins;$('#finalScore').textContent=score;$('#finalBest').textContent=best;$('#earned').textContent='+'+gain;$('#result').style.display='flex'}
 addEventListener('pointerdown',e=>{if($('#game').style.display!=='block')return; if(!e.target.closest('button'))drop()});
 $('#play').onclick=()=>{$('#home').style.display='none';$('#shop').style.display='none';$('#game').style.display='block';reset()};$('#again').onclick=reset;$('#homeBtn').onclick=()=>{$('#game').style.display='none';$('#home').style.display='block'};
-function renderShop(){let box=$('#skins');box.innerHTML='';for(const [id,s] of Object.entries(skins)){let owned=id==='mint'||localStorage.getItem('skin_'+id);let d=document.createElement('div');d.className='skin';d.innerHTML=`<div style="display:flex;align-items:center;gap:12px"><div class="swatch" style="background:linear-gradient(135deg,${s.a},${s.b})"></div><b>${s.name}</b></div><button class="btn secondary" style="width:auto;margin:0;padding:10px 14px">${skin===id?'ÉQUIPÉ':owned?'CHOISIR':s.cost+' 🪙'}</button>`;d.querySelector('button').onclick=()=>{if(owned){skin=id;localStorage.skin=id;renderShop();toast('Skin équipé')}else if(coins>=s.cost){coins-=s.cost;localStorage.coins=coins;localStorage.setItem('skin_'+id,'1');skin=id;localStorage.skin=id;$('#coins').textContent=coins;renderShop();toast('Skin débloqué !')}else toast('Pas assez de pièces')};box.appendChild(d)}}
+function renderShop(){let box=$('#skins');box.innerHTML='';for(const [id,s] of Object.entries(skins)){let owned=id==='mint'||localStorage.getItem('skin_'+id);let d=document.createElement('div');d.className='skin';d.innerHTML=`<div style="display:flex;align-items:center;gap:12px"><div class="swatch" style="background:linear-gradient(135deg,${s.a},${s.b})"></div><b>${s.name}</b></div><button class="btn secondary" style="width:auto;margin:0;padding:10px 14px">${skin===id?'ÉQUIPÉ':owned?'CHOISIR':s.cost+' 🪙'}</button>`;d.querySelector('button').onclick=()=>{if(owned){skin=id;localStorage.skin=id;renderShop();toast('Skin équipé')}else if(coins>=s.cost){coins-=s.cost;localStorage.coins=coins;localStorage.setItem('skin_'+id,'1');skin=id;localStorage.skin=id;$('#coins').textContent=coins;renderShop();if(window.sfx) sfx.buy();toast('Skin débloqué !')}else toast('Pas assez de pièces')};box.appendChild(d)}}
 $('#shopBtn').onclick=()=>{$('#home').style.display='none';$('#shop').style.display='block';renderShop()};$('#closeShop').onclick=()=>{$('#shop').style.display='none';$('#home').style.display='block'};
-resize();
+const sb=document.getElementById('soundBtn');if(sb)sb.textContent=(localStorage.getItem('stackrush_sound')==='off'?'🔇 SON':'🔊 SON');resize();
 
 </script></body></html>
